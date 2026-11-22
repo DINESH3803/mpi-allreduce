@@ -289,6 +289,24 @@ static void status_string(int flags, char *buf, size_t len)
              (flags & FLAG_MY_TIME_ERR)   ? ":my_time_error"  : "");
 }
 
+/* ------------------------------------------------- console output (rank 0) */
+
+#define TABLE_WIDTH 70
+
+static void print_rule(char c)
+{
+    int i;
+    for (i = 0; i < TABLE_WIDTH; i++)
+        putchar(c);
+    putchar('\n');
+}
+
+static void print_centered(const char *text)
+{
+    int pad = (TABLE_WIDTH - (int)strlen(text)) / 2;
+    printf("%*s%s\n", pad > 0 ? pad : 0, "", text);
+}
+
 /* ===================================================================== main */
 
 int main(int argc, char **argv)
@@ -392,20 +410,26 @@ int main(int argc, char **argv)
         } else {
             snprintf(libver, sizeof(libver), "unknown");
         }
-        printf("# MPI_Allreduce vs my_mpi_allreduce (MPI_INT, MPI_SUM)\n");
-        printf("# MPI library: %s\n", libver);
-        printf("# thread level provided: %s\n", thread_level_name(provided));
-        printf("# ranks: %d, OpenMP threads per rank: %d", nranks, thr_global[0]);
+        print_rule('=');
+        print_centered("MPI_ALLREDUCE PERFORMANCE COMPARISON");
+        print_centered("(MPI_INT, MPI_SUM)");
+        print_rule('=');
+        printf(" MPI Library       : %s\n", libver);
+        printf(" Thread Level      : %s\n", thread_level_name(provided));
+        printf(" MPI Ranks         : %d\n", nranks);
+        printf(" OpenMP Threads    : %d per rank", thr_global[0]);
         if (-thr_global[1] != thr_global[0])
             printf(" (min %d)", -thr_global[1]);
-        printf("\n# warmup: %d, timed iterations: %d\n", warmup, iters);
+        printf("\n Warmup Iterations : %d\n", warmup);
+        printf(" Timed Iterations  : %d\n", iters);
         for (i = 0; i < nranks; i++)
-            printf("# rank %d on %s\n", i, all_hosts + (size_t)i * MPI_MAX_PROCESSOR_NAME);
-        printf("# time = per-call time, max over ranks per iteration; "
-               "avg/min/max over iterations; microseconds\n");
-        printf("# speedup = std_avg_us / my_avg_us; GBps = bytes / avg time / 1e9\n");
-        printf("ranks,threads,bytes,count,std_avg_us,std_min_us,std_max_us,"
-               "my_avg_us,my_min_us,my_max_us,speedup,std_GBps,my_GBps,status\n");
+            printf(" Rank %-3d Host     : %s\n", i, all_hosts + (size_t)i * MPI_MAX_PROCESSOR_NAME);
+        printf(" Time (us)         : per call; max over ranks each iteration,\n"
+               "                     averaged over the timed iterations\n");
+        printf(" Speedup           : standard time / custom time\n");
+        print_rule('-');
+        printf(" Message Size | Standard MPI (us) | Custom MPI (us) | Speedup | Status\n");
+        print_rule('-');
         fflush(stdout);
     }
 
@@ -480,30 +504,29 @@ int main(int argc, char **argv)
 
         if (g_rank == 0) {
             status_string(gflags, status, sizeof(status));
-            if (gflags != 0)
-                printf("# VERIFY bytes=%ld: FAILED on %d of %d ranks (%s)\n",
-                       bytes, gnfail, nranks, status);
+            /* Sizes are exact powers of two, so bytes / MIB is exact. */
             if (gflags & FLAG_MY_ERROR) {
-                printf("%d,%d,%ld,%d,%.2f,%.2f,%.2f,nan,nan,nan,nan,%.3f,nan,%s\n",
-                       nranks, thr_global[0], bytes, count,
-                       ts.avg_us, ts.min_us, ts.max_us,
-                       (double)bytes / (ts.avg_us * 1e3), status);
+                printf(" %6ld MB    | %17.2f | %15s | %7s | %s\n",
+                       bytes / MIB, ts.avg_us, "n/a", "n/a",
+                       (gflags != 0) ? "FAIL" : "PASS");
             } else {
-                printf("%d,%d,%ld,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.3f,%.3f,%.3f,%s\n",
-                       nranks, thr_global[0], bytes, count,
-                       ts.avg_us, ts.min_us, ts.max_us,
-                       tm.avg_us, tm.min_us, tm.max_us,
+                printf(" %6ld MB    | %17.2f | %15.2f | %6.2fx | %s\n",
+                       bytes / MIB, ts.avg_us, tm.avg_us,
                        ts.avg_us / tm.avg_us,
-                       (double)bytes / (ts.avg_us * 1e3),     /* bytes/us/1e3 = GB/s */
-                       (double)bytes / (tm.avg_us * 1e3),
-                       status);
+                       (gflags != 0) ? "FAIL" : "PASS");
             }
+            if (gflags != 0)
+                printf("              -> FAILED on %d of %d ranks (%s)\n",
+                       gnfail, nranks, status);
             fflush(stdout);
         }
     }
 
     if (g_rank == 0) {
-        printf("# overall: %s\n", any_failure ? "FAILURES DETECTED (see stderr)" : "all sizes PASS");
+        print_rule('-');
+        printf(" Overall Verification: %s\n",
+               any_failure ? "FAIL (see stderr for details)" : "PASS");
+        print_rule('=');
         fflush(stdout);
     }
 
